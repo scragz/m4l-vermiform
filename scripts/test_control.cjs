@@ -11,6 +11,10 @@ test('Compost inherits source without clearing RAM on mode change',()=>{let c=lo
 test('freeze modes defer XYZ until trigger unfreezes',()=>{let c=load();c.param('mode',28);c.commitMode();c.trigger();c.param('x',20);assert.equal(c.S.x,64);c.trigger();assert.equal(c.S.x,20);});
 test('TTS and list state survive serialization',()=>{let c=load();c.text('hello human');assert.ok(c.parseText(c.textValue).length>4);c.phoneList=[1,12,30];const save=JSON.stringify({text:c.textValue,list:c.phoneList});let d=load();d.restore(save);assert.equal(d.textValue,c.textValue);assert.equal(JSON.stringify(d.phoneList),'[1,12,30]');});
 test('trigger arm starts quiet then opens and drone respects stop',()=>{let c=load();c.param('drone',1);c.param('armed',1);assert.equal(last(c,'gate'),0);c.trigger();assert.equal(last(c,'gate'),1);c.panic();assert.equal(last(c,'gate'),0);assert.equal(c.S.drone,0);});
+test('text field is live only for TTS sources',()=>{let c=load(),sent={};c.patcher.getnamed=k=>({message:(m,...a)=>{sent[k+'.'+m]=a.length>1?a:a[0];}});
+ c.param('mode',7);c.commitMode();assert.equal(sent['textinput.ignoreclick'],0);
+ c.param('mode',1);c.commitMode();assert.equal(sent['textinput.ignoreclick'],1);assert.equal(sent['textinput.textcolor'][3],.45);
+ c.param('mode',30);c.commitMode();c.param('mode',63);c.commitMode();assert.equal(sent['textinput.ignoreclick'],0);});
 let failed=0;for(const [n,f] of tests){try{f();console.log('PASS',n);}catch(e){failed++;console.error('FAIL',n,e.message);}}if(failed)process.exit(1);
 // Compost knobs must never retune or reselect the speech source it is recording.
 {let c=load();c.param('mode',29);c.commitMode();c.param('x',76);c.param('z',50);const before=last(c,'pitch');c.param('mode',63);c.commitMode();c.param('x',0);c.param('z',100);c.publishFrame();assert.equal(last(c,'pitch'),before);assert.equal(c.sequence[0],25);console.log('PASS Compost preserves the previous speech settings');}

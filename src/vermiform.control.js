@@ -39,7 +39,13 @@ function selectMode(){
  switchTask.cancel();switchTask.schedule(12);labels();
 }
 function commitMode(){send('speed',speed());send('compost',S.mode>=63?1:0);send('freeze',frozen?1:0);send('core',TABLES.modes[sourceMode-1].core);send('switchgate',1);send('output',S.output);send('width',S.width/100);switching=false;resequence();if(S.mode>=63){send('start',S.x/127);send('length',S.y/127);send('window',S.z/127);}publishFrame();updateGate();}
-function labels(){
+// The text field only feeds the TTS modes (7, 24, 30, 39, 40, and Compost recording one of them).
+// Elsewhere it dims and ignores clicks. Colours come from Live's theme at the time of the mode change.
+function themeColor(name,fallback){try{if(typeof max!=='undefined'&&max.getcolor){var c=max.getcolor(name);if(c&&c.length>=3)return [c[0],c[1],c[2],c.length>3?c[3]:1];}}catch(e){}return fallback;}
+function textState(){var o=obj('textinput');if(!o)return;var on=source().type=='tts';
+ o.message('ignoreclick',on?0:1);
+ o.message('textcolor',on?themeColor('live_control_fg',[.85,.85,.85,1]):themeColor('live_lcd_title',[.75,.75,.75,1]).slice(0,3).concat([.45]));}
+function labels(){textState();
  var starts=[1,22,29,37,47,50,63];ui('corepicker','set',selected.core);ui('subpicker','clear');
  for(var i=0;i<TABLES.modes.length;i++)if(TABLES.modes[i].core==selected.core)ui('subpicker','append',TABLES.modes[i].mode+'  '+TABLES.modes[i].name);
  ui('subpicker','set',S.mode-starts[selected.core]);
