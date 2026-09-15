@@ -1,4 +1,4 @@
-# ERD/WORM-Inspired Speech Synthesis Device — M4L Build Spec
+# Vermiform Speech Synthesis Device — M4L Build Spec
 
 Target: Max for Live audio effect/instrument, gen~ for DSP, JS/Node for Max for control logic. Based on the seven-core architecture of Martin Howse's ERD/WORM, reimplemented rather than ported (see licensing note at end).
 
