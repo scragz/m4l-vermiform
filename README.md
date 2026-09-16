@@ -61,4 +61,4 @@ The single deliverable is the instrument variant. External-audio excitation and 
 
 Build: `python3 scripts/build.py`. Controller tests: `node scripts/test_control.cjs`. Native test harness: `python3 scripts/build_qa.py`, then load `scripts/build/Vermiform QA.amxd` in Live. It records all modes to `docs/verification/audio/` with speaker output muted. Analyze with `python3 scripts/check_audio.py`.
 
-The builder deliberately never overwrites the final frozen artifact. After a source change, open the staging AMXD in Max, verify it, freeze it, and save it as `device/Vermiform.amxd`.
+`scripts/build.py` freezes automatically: it stages editable sources in `scripts/build/`, then embeds them directly into `device/Vermiform.amxd`'s dependency footer (same container format Live writes when you freeze by hand), so the shipped device needs nothing beside it. Open `scripts/build/Vermiform.maxpat` in Max instead when you want to live-edit and reload a dependency without a full rebuild.

@@ -1,4 +1,5 @@
-"""Build editable sources and an unfrozen staging AMXD; final is saved/frozen in Max."""
+"""Build editable sources into scripts/build/, then freeze them into a self-contained device/Vermiform.amxd."""
+import datetime
 import json
 import shutil
 import struct
@@ -7,6 +8,7 @@ from pathlib import Path
 from tables import write as tables
 
 ROOT=Path(__file__).resolve().parents[1];DEST=ROOT/'device';DEST.mkdir(exist_ok=True)
+STAGE=ROOT/'scripts/build';STAGE.mkdir(parents=True,exist_ok=True)
 V=dict(major=9,minor=0,revision=9,architecture='x64',modernui=1)
 B=[];L=[];P={}
 import sys;sys.path.insert(0,str(ROOT.parent/'theme'));import theme as T  # shared device theme
@@ -30,8 +32,9 @@ def gen(code):
  return dict(fileversion=1,appversion=V,classnamespace='dsp.gen',rect=[0,0,900,820],boxes=bs,lines=ls)
 D=tables(ROOT/'src');(ROOT/'src/vermiform.tables.json').write_text(json.dumps(D,indent=2)+'\n')
 js='var TABLES='+json.dumps(D,separators=(',',':'))+';\n'+(ROOT/'src/vermiform.control.js').read_text()
-(DEST/'vermiform.control.js').write_text(js)
-for n in ['vermiform.panel.js','vermiform.segments.wav']:shutil.copyfile(ROOT/'src'/n,DEST/n);T.write_jsui(DEST,'vermiform',sep='.')
+(STAGE/'vermiform.control.js').write_text(js)
+for n in ['vermiform.panel.js','vermiform.segments.wav']:shutil.copyfile(ROOT/'src'/n,STAGE/n)
+T.write_jsui(STAGE,'vermiform',sep='.')
 box('panel','jsui',[0,0,804,169],varname='panel',filename='vermiform.panel.js',presentation=1,presentation_rect=[0,0,804,169],numinlets=1,numoutlets=1,border=0,ignoreclick=1)
 obj('control','js vermiform.control.js',20,850,no=2,varname='control');wire('control','panel',1)
 # Fieldsets and readouts are drawn by vermiform.panel.js (FIELDSETS there matches this layout).
@@ -91,7 +94,35 @@ obj('bend','bendin @bendmode 2',780,1000);obj('bend-msg','prepend bend',780,1030
 obj('init','live.thisdevice',20,1160,no=3);box('initmsg','message',[240,1160,70,22],text='init');wire('init','initmsg');wire('initmsg','control')
 P['parameterbanks']={'0':dict(index=0,name='Vermiform',parameters=['mode','speed','x','y','z','rate','depth','trigger']),'1':dict(index=1,name='Performance',parameters=['drone','armed','stretch','operation','output','width','-','-'])};P['inherited_shortname']=1
 patch=dict(fileversion=1,appversion=V,classnamespace='box',rect=[70,90,1120,800],openrect=[0,0,804,169],devicewidth=804,openinpresentation=1,bglocked=1,**T.patcher_attrs(),boxes=B[1:]+B[:1],lines=L,parameters=P,autosave=0,title='Vermiform',dependency_cache=[dict(name=n,type='WAVE' if n.endswith('wav') else 'TEXT',implicit=1) for n in ['vermiform.control.js','vermiform.panel.js','vermiform.theme.js','vermiform.segments.wav']])
-raw=(json.dumps({'patcher':patch},indent=2)+'\n').encode();(DEST/'Vermiform.maxpat').write_bytes(raw)
-payload=raw+b'\0';(DEST/'Vermiform.amxd').write_bytes(b'ampf'+struct.pack('<I',4)+b'iiii'+b'meta'+struct.pack('<II',4,0)+b'ptch'+struct.pack('<I',len(payload))+payload)
-(DEST/'vermiform.gendsp').write_text(json.dumps({'patcher':G},indent=2)+'\n')
-print('Built',DEST/'Vermiform.amxd')
+raw=(json.dumps({'patcher':patch},indent=2)+'\n').encode();(STAGE/'Vermiform.maxpat').write_bytes(raw)
+(STAGE/'vermiform.gendsp').write_text(json.dumps({'patcher':G},indent=2)+'\n')
+
+# --- Freeze: embed the staged dependencies directly into a self-contained AMXD. ---
+# Container layout validated against Ableton's own maxdevtools frozen-device test
+# fixtures (github.com/Ableton/maxdevtools, maxdiff/freezing_utils.py) and real
+# frozen output from another device in this workspace:
+#   'ampf' LE32(4) devicecode | 'meta' LE32(4) LE32(7) | 'ptch' LE32(len) +
+#   'mx@c' BE32(16) BE32(0) BE32(dirOffset) + [entry bytes back to back, main
+#   entry first at offset 16] + 'dlst' BE32(len) + ['dire' entries: type/fnam/
+#   sz32/of32/vers/flag/mdat, each a BE32-length-prefixed sub-chunk; fnam is
+#   NUL-padded to a multiple of 4 bytes; mdat is HFS+ seconds since 1904; flag
+#   is 17 for the main device entry and 0 for dependencies].
+def _u32be(n):return struct.pack('>I',n&0xffffffff)
+def _chunk(tag,data):return tag.encode('ascii')+_u32be(8+len(data))+data
+def _padname(name):
+ b=name.encode('ascii')+b'\0';pad=(-len(b))%4;return b+b'\0'*pad
+def _mactime():return int(datetime.datetime.now(datetime.timezone.utc).timestamp())+2082844800
+def freeze_amxd(main_name,main_data,dependencies,device_code='iiii'):
+ now=_mactime();entries=[(main_name,'JSON',17,main_data)]+[(n,t,0,d) for n,t,d in dependencies]
+ offset=16;blob=b'';directory=b''
+ for name,typ,flag,data in entries:
+  content=(_chunk('type',typ.encode('ascii'))+_chunk('fnam',_padname(name))+_chunk('sz32',_u32be(len(data)))+
+           _chunk('of32',_u32be(offset))+_chunk('vers',_u32be(0))+_chunk('flag',_u32be(flag))+_chunk('mdat',_u32be(now)))
+  directory+=_chunk('dire',content);blob+=data;offset+=len(data)
+ container=b'mx@c'+_u32be(16)+_u32be(0)+_u32be(offset)+blob+_chunk('dlst',directory)
+ return (b'ampf'+struct.pack('<I',4)+device_code.encode('ascii')+
+         b'meta'+struct.pack('<I',4)+struct.pack('<I',7)+
+         b'ptch'+struct.pack('<I',len(container))+container)
+dependencies=[(n,'WAVE' if n.endswith('wav') else 'TEXT',(STAGE/n).read_bytes()) for n in ['vermiform.control.js','vermiform.panel.js','vermiform.theme.js','vermiform.segments.wav']]
+(DEST/'Vermiform.amxd').write_bytes(freeze_amxd('Vermiform.amxd',raw+b'\0',dependencies))
+print('Built',DEST/'Vermiform.amxd','(frozen,',len(dependencies),'dependencies embedded)')
